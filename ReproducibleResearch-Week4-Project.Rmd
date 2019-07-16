@@ -1,0 +1,153 @@
+---
+title: "Reproducible Research Project - 2"
+author: "Dr.Senthil"
+date: "15/07/2019"
+output: 
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Synopsis
+
+The goal of the Project is to explore the NOAA Storm Database and explore the effects of severe weather events on both population and economy.The database covers the time period between 1950 and November 2011.
+
+The following analysis investigates which types of severe weather events are most harmful on:
+
+Health (injuries and fatalities)
+Property and crops (economic consequences)
+
+
+## Data Processing
+
+The data for this assignment come in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. You can download the file from
+ https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 
+ 
+``` {r}
+library("data.table")
+library("ggplot2")
+
+download_URL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+download.file(download_URL, destfile = paste0(getwd(), '/repdata%2Fdata%2FStormData.csv.bz2'))
+
+stormDF <- read.csv("repdata%2Fdata%2FStormData.csv.bz2")
+stormDT <- as.data.table(stormDF)
+
+```
+
+## Column Names for examining so that we shall remove unwanted fields
+
+```{r}
+colnames(stormDT)
+
+columns2Remove <- colnames(stormDT[, !c("EVTYPE"
+  , "FATALITIES"
+  , "INJURIES"
+  , "PROPDMG"
+  , "PROPDMGEXP"
+  , "CROPDMG"
+  , "CROPDMGEXP")])
+
+# Removing columns
+stormDT[, c(columns2Remove) := NULL]
+
+# Recreating StormDT Matrix with only the required columns   
+stormDT <- stormDT[(EVTYPE != "?" & 
+             (INJURIES > 0 | FATALITIES > 0 | PROPDMG > 0 | CROPDMG > 0)), c("EVTYPE"
+                                                                            , "FATALITIES"
+                                                                            , "INJURIES"
+                                                                            , "PROPDMG"
+                                                                            , "PROPDMGEXP"
+                                                                            , "CROPDMG"
+                                                                            , "CROPDMGEXP") ]
+
+
+# Making the Columns Cleaner
+
+cols <- c("PROPDMGEXP", "CROPDMGEXP")
+stormDT[,  (cols) := c(lapply(.SD, toupper)), .SDcols = cols]
+
+# Make property damage alphanumeric values to numeric values.
+propdmgkey <-  c("\"\"" = 10^0,
+                 "-" = 10^0, 
+                 "+" = 10^0,
+                 "0" = 10^0,
+                 "1" = 10^1,
+                 "2" = 10^2,
+                 "3" = 10^3,
+                 "4" = 10^4,
+                 "5" = 10^5,
+                 "6" = 10^6,
+                 "7" = 10^7,
+                 "8" = 10^8,
+                 "9" = 10^9,
+                 "H" = 10^2,
+                 "K" = 10^3,
+                 "M" = 10^6,
+                 "B" = 10^9)
+
+# Making crop damage alphanumeric values to numeric values
+cropdmgkey <-  c("\"\"" = 10^0,
+                "?" = 10^0, 
+                "0" = 10^0,
+                "K" = 10^3,
+                "M" = 10^6,
+                "B" = 10^9)
+
+stormDT[, PROPDMGEXP := propdmgkey[as.character(stormDT[,PROPDMGEXP])]]
+stormDT[is.na(PROPDMGEXP), PROPDMGEXP := 10^0 ]
+
+stormDT[, CROPDMGEXP := cropdmgkey[as.character(stormDT[,CROPDMGEXP])] ]
+stormDT[is.na(CROPDMGEXP), CROPDMGEXP := 10^0 ]
+
+# Calculating Cost for Property and Crop Damages 
+stormDT <- stormDT[, .(EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, propcost = PROPDMG * PROPDMGEXP, CROPDMG, CROPDMGEXP, cropcost = CROPDMG * CROPDMGEXP)]
+
+```
+
+## Total Property and Crop Damages cost
+
+```{r}
+totalcostDT <- stormDT[, .(propCost = sum(propcost), cropcost = sum(cropcost), Total_Cost = sum(propcost) + sum(cropcost)), by = .(EVTYPE)]
+
+totalcostDT <- totalcostDT[order(-Total_Cost), ]
+
+totalcostDT <- totalcostDT[1:10, ]
+
+```
+
+
+## Total Fatalities and Injuries
+
+```{r}
+totalInjuriesDT <- stormDT[, .(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES), totals = sum(FATALITIES) + sum(INJURIES)), by = .(EVTYPE)]
+
+totalInjuriesDT <- totalInjuriesDT[order(-FATALITIES), ]
+
+totalInjuriesDT <- totalInjuriesDT[1:10, ]
+
+```
+
+## Results
+
+## Chart - 1, Top Fatalities
+
+```{r}
+Fatalities_DT <- melt(totalInjuriesDT, id.vars="EVTYPE", variable.name = "Types")
+
+ggplot(Fatalities_DT, aes(x=reorder(EVTYPE, -value), y=value))+labs(title = "Top 10 Fatalities", x="Fatalities",y="Frequency")+ geom_bar(stat="identity", aes(fill=Types), position="dodge")+theme(axis.text.x = element_text(angle=45, hjust=1))
+```
+
+
+## Chart - 2, Economic Cost 
+
+```{r}
+economic_cost <- melt(totalcostDT, id.vars="EVTYPE", variable.name = "Cost_Type")
+
+ggplot(economic_cost, aes(x=reorder(EVTYPE, -value), y=value))+labs(title = "Top 10 Events for Economic Cost", x="Event Type",y="Cost($)")+ geom_bar(stat="identity", aes(fill=Cost_Type), position="dodge")+theme(axis.text.x = element_text(angle=45, hjust=1))
+```
